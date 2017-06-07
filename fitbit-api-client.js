@@ -6,24 +6,27 @@ function FitbitApiClient(clientID, clientSecret) {
     this.oauth2 = OAuth2({
         clientID: clientID,
         clientSecret: clientSecret,
-        site: 'https://api.fitbit.com/', 
+        site: 'https://api.fitbit.com/',
         authorizationPath: 'oauth2/authorize',
         tokenPath: 'oauth2/token',
+        revocationPath: 'oauth2/revoke',
         useBasicAuthorizationHeader: true
     });
 }
 
 FitbitApiClient.prototype = {
-    getAuthorizeUrl: function (scope, redirectUrl) {
+    getAuthorizeUrl: function (scope, redirectUrl, prompt, state) {
         return this.oauth2.authCode.authorizeURL({
             scope: scope,
-            redirect_uri: redirectUrl
+            redirect_uri: redirectUrl,
+            prompt: prompt, 
+            state: state
         }).replace('api', 'www');
     },
 
     getAccessToken: function (code, redirectUrl) {
         var deferred = Q.defer();
-          
+
         this.oauth2.authCode.getToken({
             code: code,
             redirect_uri: redirectUrl
@@ -34,19 +37,21 @@ FitbitApiClient.prototype = {
                 deferred.resolve(result);
             }
         });
-        
+
         return deferred.promise;
     },
-    
-    refreshAccesstoken: function (accessToken, refreshToken) {
+
+    refreshAccessToken: function (accessToken, refreshToken, expiresIn) {
+        if(expiresIn === undefined) expiresIn = -1;
+
         var deferred = Q.defer();
-          
+
         var token = this.oauth2.accessToken.create({
             access_token: accessToken,
             refresh_token: refreshToken,
-            expires_in: -1
+            expires_in: expiresIn
         });
-          
+
         token.refresh(function (error, result) {
             if (error) {
                 deferred.reject(error);
@@ -54,19 +59,38 @@ FitbitApiClient.prototype = {
                 deferred.resolve(result.token);
             }
         });
-        
+
         return deferred.promise;
     },
-    
-    get: function (path, accessToken, userId) {
+
+    revokeAccessToken: function (accessToken) {
         var deferred = Q.defer();
-        
+
+        var token = this.oauth2.accessToken.create({
+            access_token: accessToken,
+            refresh_token: '',
+            expires_in: ''
+        });
+
+        token.revoke('access_token', function (error, result) {
+            if (error) {
+                deferred.reject(error);
+            } else {
+                deferred.resolve(result);
+            }
+        });
+
+        return deferred.promise;
+    },
+
+    // extraHeaders is optional
+    get: function (path, accessToken, userId, extraHeaders) {
+        var deferred = Q.defer();
+
         Request({
-            url: getUrl(path, userId), 
+            url: getUrl(path, userId),
             method: 'GET',
-            headers: {
-                Authorization: 'Bearer ' + accessToken
-            },
+            headers: mergeHeaders(accessToken, extraHeaders),
             json: true
         }, function(error, response, body) {
             if (error) {
@@ -78,21 +102,20 @@ FitbitApiClient.prototype = {
                 ]);
             }
         });
-        
+
         return deferred.promise;
     },
 
-    post: function (path, accessToken, data, userId) {
+    // extraHeaders is optional
+    post: function (path, accessToken, data, userId, extraHeaders) {
         var deferred = Q.defer();
-        
+
         Request({
-            url: getUrl(path, userId), 
+            url: getUrl(path, userId),
             method: 'POST',
-            headers: {
-                Authorization: 'Bearer ' + accessToken
-            },
+            headers: mergeHeaders(accessToken, extraHeaders),
             json: true,
-            body: data
+            form: data
         }, function(error, response, body) {
             if (error) {
                 deferred.reject(error);
@@ -103,21 +126,20 @@ FitbitApiClient.prototype = {
                 ]);
             }
         });
-        
+
         return deferred.promise;
     },
 
-    put: function (path, accessToken, data, userId) {
+    // extraHeaders is optional
+    put: function (path, accessToken, data, userId, extraHeaders) {
         var deferred = Q.defer();
-        
+
         Request({
-            url: getUrl(path, userId), 
+            url: getUrl(path, userId),
             method: 'PUT',
-            headers: {
-                Authorization: 'Bearer ' + accessToken
-            },
+            headers: mergeHeaders(accessToken, extraHeaders),
             json: true,
-            body: data
+            form: data
         }, function(error, response, body) {
             if (error) {
                 deferred.reject(error);
@@ -128,19 +150,18 @@ FitbitApiClient.prototype = {
                 ]);
             }
         });
-        
+
          return deferred.promise;
     },
 
-    delete: function (path, accessToken, userId) {
+    // extraHeaders is optional
+    delete: function (path, accessToken, userId, extraHeaders) {
         var deferred = Q.defer();
-        
+
         Request({
-            url: getUrl(path, userId), 
+            url: getUrl(path, userId),
             method: 'DELETE',
-            headers: {
-                Authorization: 'Bearer ' + accessToken
-            },
+            headers: mergeHeaders(accessToken, extraHeaders),
             json: true
         }, function(error, response, body) {
             if (error) {
@@ -152,13 +173,27 @@ FitbitApiClient.prototype = {
                 ]);
             }
         });
-        
+
         return deferred.promise;
     }
 };
 
 function getUrl(path, userId) {
-    return url = 'https://api.fitbit.com/1/user/' + (userId || '-') + path;
+    return path = 'https://api.fitbit.com/1/user/' + (userId || '-') + path;
+}
+
+function mergeHeaders(accessToken, extraHeaders) {
+    var headers = {
+        Authorization: 'Bearer ' + accessToken
+    };
+
+    if (typeof extraHeaders !== "undefined" && extraHeaders) {
+      for (var attrname in extraHeaders) {
+        headers[attrname] = extraHeaders[attrname];
+      }
+    }
+
+    return headers;
 }
 
 module.exports = FitbitApiClient;
